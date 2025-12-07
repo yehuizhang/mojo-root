@@ -24,6 +24,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="826c4947:/Users/yehuizhang/repo/mojo/mojo-shared:/Users/yehuizhang/repo/mojo/mojo-shared/resources/snohomish_fish_plant_data.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="826c4947:/Users/yehuizhang/repo/mojo/mojo-shared:/Users/yehuizhang/repo/mojo/mojo-shared/resources/wa_data.csv">
           <value>
             <Attribute>
