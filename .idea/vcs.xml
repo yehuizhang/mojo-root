@@ -5,6 +5,7 @@
     <mapping directory="$PROJECT_DIR$/mojo-api" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/mojo-cdk" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/mojo-infra" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/mojo-next" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/mojo-shared" vcs="Git" />
   </component>
 </project>
