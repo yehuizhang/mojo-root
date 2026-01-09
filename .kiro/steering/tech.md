@@ -1,29 +1,24 @@
 # Technology Stack
 
 ## Core Technologies
+- **Python 3.13+**: Primary language
+- **FastAPI**: Web framework
+- **Redis**: Caching and sessions
+- **Docker Compose**: Orchestration
+- **AWS CDK**: Infrastructure as Code
 
-- **Python 3.13+**: Primary language for all services
-- **FastAPI**: Web framework for REST API service
-- **SQLAlchemy**: Database ORM
-- **Redis**: Caching and session management
-- **Docker & Docker Compose**: Containerization and orchestration
-- **AWS CDK**: Infrastructure as Code (TypeScript)
-
-## Logging & Monitoring Stack
-
-- **Elasticsearch 9.1.5**: Search and analytics engine for log storage
-- **Kibana 9.1.5**: Data visualization and exploration for logs
-- **Filebeat 9.1.5**: Log shipping agent for centralized logging
-- **ELK Stack**: Complete logging pipeline (Elasticsearch + Kibana + Filebeat)
+## ELK Stack (v9.1.5)
+- **Elasticsearch**: Log storage
+- **Kibana**: Log visualization  
+- **Filebeat**: Log shipping
 
 ## Key Libraries
-
-- **python-telegram-bot**: Telegram bot framework
+- **python-telegram-bot**: Bot framework
 - **APScheduler**: Task scheduling
 - **boto3**: AWS SDK
-- **google-api-python-client**: Google APIs integration
+- **google-api-python-client**: Google APIs
 - **pydantic**: Data validation
-- **bcrypt & PyJWT**: Authentication and security
+- **bcrypt & PyJWT**: Authentication
 - **httpx & aiohttp**: HTTP clients
 
 ## Development Tools
