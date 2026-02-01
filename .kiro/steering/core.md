@@ -61,9 +61,22 @@ shared/
 - Infrastructure services start independently
 - Application services depend on infrastructure being ready
 
-### Common Issue: 502 Bad Gateway
+### Common Issues
+
+#### 502 Bad Gateway
 - Problem: nginx keeps stale connections after container restart
 - Solution: Configure upstream retry: `max_fails=3 fail_timeout=30s`
+
+#### Stale Content After Deployment
+- Problem: CloudFront caches old content, users see outdated pages
+- Solution: Create CloudFront invalidation after deployment
+- Command: `aws cloudfront create-invalidation --distribution-id E27QEWNM1GENUR --paths "/*"`
+
+#### CORS Errors with Credentials
+- Problem: `allow_origins=["*"]` with `allow_credentials=True` is not allowed
+- Solution: Specify exact origins in FastAPI CORS middleware
+- nginx must handle OPTIONS preflight requests separately (bypass CloudFront verification)
+- CORS only affects browsers, not Postman/curl
 
 ### File Structure
 - Use snake_case for Python files

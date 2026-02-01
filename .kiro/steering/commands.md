@@ -69,6 +69,13 @@ curl -u elastic:${ELK_PASSWORD} "http://localhost:9200/mojo-logs-*/_count"
 # Restart nginx (502 errors)
 cd mojo-infra && docker compose -f docker-compose.ssl.yml restart nginx
 
+# Clear CloudFront cache (stale content after deployment)
+# Distribution ID: E27QEWNM1GENUR
+aws cloudfront create-invalidation --distribution-id E27QEWNM1GENUR --paths "/*"
+
+# Check invalidation status
+aws cloudfront get-invalidation --distribution-id E27QEWNM1GENUR --id <INVALIDATION_ID>
+
 # View logs (LOCAL DEVELOPMENT)
 # Logs appear directly in terminal where 'bb dev' is running
 # No need for 'docker logs' - user runs locally!
