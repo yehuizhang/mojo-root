@@ -1,12 +1,6 @@
 ---
 inclusion: always
 ---
-<!------------------------------------------------------------------------------------
-   Add rules to this file or a short description and have Kiro refine them for you.
-   
-   Learn about inclusion modes: https://kiro.dev/docs/steering/#inclusion-modes
--------------------------------------------------------------------------------------> 
-
 # Mojo API Codebase Patterns
 
 ## Architecture Pattern: Handler + DAO Injection
@@ -70,3 +64,22 @@ Prefer single-key storage over index patterns when possible:
 - Use: `auth:username:<username>` → full object (keep id in object)
 
 This reduces complexity and eliminates two-step lookups.
+
+## Position Quantity Convention
+
+For stock/option positions, use **signed quantities** to indicate long/short:
+- **Positive quantity** = Long position (bought)
+- **Negative quantity** = Short position (sold)
+
+This simplifies P&L calculations:
+```python
+# Works for both long and short positions
+current_value = current_price * quantity * multiplier
+cost = entry_price * quantity * multiplier
+unrealized_pnl = current_value - cost
+```
+
+Frontend should:
+- Display absolute value for quantity
+- Determine LONG/SHORT badge from sign: `quantity > 0 ? "LONG" : "SHORT"`
+- Convert to negative when user selects "Sell (Short)" before submitting

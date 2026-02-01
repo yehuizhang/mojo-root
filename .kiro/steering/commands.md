@@ -1,14 +1,27 @@
 # Essential Commands
 
+## Local Development Environment
+
+**IMPORTANT**: User runs mojo-api locally (NOT in Docker) using:
+```bash
+cd /Users/yehuizhang/repo/mojo/mojo-api
+bb dev         # Runs FastAPI locally with uvicorn auto-reload
+```
+
+- FastAPI runs on local machine at http://localhost:8000
+- Connects to Redis at 192.168.0.105:6380
+- Logs appear directly in terminal (not Docker logs)
+- Code changes auto-reload via uvicorn watch
+
 ## Build Commands
 
 ### mojo-api (Application Services)
 ```bash
-bb up          # Production mode with rebuild
-bb dev         # Development mode with logs  
+bb dev         # LOCAL: Run FastAPI with uvicorn (NOT Docker)
+bb up          # Production mode with rebuild (Docker)
 bb down        # Stop all services
-bb logs        # Show FastAPI logs
-bb ps          # Show service status
+bb logs        # Show FastAPI logs (Docker only)
+bb ps          # Show service status (Docker only)
 ```
 
 ### mojo-infra (Infrastructure Services)
@@ -32,10 +45,10 @@ cd mojo-infra && ./build.sh ssl up
 
 ## Development Workflow
 ```bash
-# Development
-cd mojo-api && bb dev
+# Local Development (User's Setup)
+cd /Users/yehuizhang/repo/mojo/mojo-api && bb dev
 
-# Production
+# Production (Docker)
 cd mojo-api && bb up
 ```
 
@@ -56,7 +69,11 @@ curl -u elastic:${ELK_PASSWORD} "http://localhost:9200/mojo-logs-*/_count"
 # Restart nginx (502 errors)
 cd mojo-infra && docker compose -f docker-compose.ssl.yml restart nginx
 
-# View logs
+# View logs (LOCAL DEVELOPMENT)
+# Logs appear directly in terminal where 'bb dev' is running
+# No need for 'docker logs' - user runs locally!
+
+# View logs (Docker/Production)
 bb logs
 docker logs fastapi-app
 
