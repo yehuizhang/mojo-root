@@ -315,6 +315,125 @@ This plan implements a real-time stock tracking and options trading assistant sy
     - Verify API endpoints respond correctly
     - _Requirements: All_
 
+- [x] 24. Implement position recommendation service
+  - [x] 24.1 Create PositionRecommendationService
+    - Implement `generate_position_recommendation()` - main entry point that routes to specific evaluators
+    - Implement `evaluate_leaps_recommendation()` - check delta ≥0.70, DTE ≥6-9 months, IV not elevated, thesis intact
+    - Implement `evaluate_short_call_recommendation()` - check profit ≥60%, DTE, price vs strike, IV conditions
+    - Implement `evaluate_short_put_recommendation()` - check profit ≥60%, price vs strike, willingness to own
+    - Implement `calculate_roll_parameters()` - find optimal new strike and expiration based on roll type
+    - _Requirements: 24_
+  
+  - [x] 24.2 Add position recommendation models
+    - Create `RecommendationAction` enum (MAINTAIN, CLOSE, ROLL)
+    - Create `RollParameters` model with new_strike, new_expiration, expected_credit, roll_type
+    - Create `PositionRecommendation` model with action, reasoning, priority, roll_parameters
+    - Update `StrategyData` model to include recommendation fields for each position type
+    - _Requirements: 24_
+  
+  - [x] 24.3 Implement LEAPS recommendation logic
+    - Check maintain conditions: delta ≥0.70, DTE ≥180 days, IV not extremely elevated
+    - Check close conditions: DTE ≤90 days, delta <0.60, IV collapse, thesis break
+    - Check roll conditions: DTE 120-180 days, delta <0.65
+    - Generate roll parameters: same strike, later expiration (extend by 12-18 months)
+    - Return recommendation with action, reasoning bullets, and roll parameters if applicable
+    - _Requirements: 24.1, 24.2, 24.3_
+  
+  - [x] 24.4 Implement short call recommendation logic
+    - Check close conditions: profit ≥60%, DTE <21, IV collapse, strong upward move
+    - Check maintain conditions: 30-45 DTE, delta 0.20-0.30, IV elevated, range-bound price
+    - Determine roll type based on price action: down & out (below strike), out (approaching), up & out (breakout)
+    - Generate roll parameters: calculate new strike, new expiration (30-60 days out), expected credit
+    - Validate PMCC structure: ensure short call strike > LEAPS strike
+    - _Requirements: 24.4, 24.5, 24.6, 24.7, 24.8, 24.16_
+  
+  - [x] 24.5 Implement short put recommendation logic
+    - Check close conditions: profit ≥60%, IV crush, earnings within 7 days
+    - Check maintain conditions: 30-45 DTE, delta 0.20-0.30, happy to own shares, IV elevated
+    - Determine roll type: down or close (above strike), out (near strike), down & out (dropping)
+    - Generate roll parameters: calculate new strike, new expiration, maintain net credit
+    - _Requirements: 24.9, 24.10, 24.11, 24.12, 24.13_
+  
+  - [x] 24.6 Implement system-level recommendation rules
+    - Check earnings proximity: recommend closing/widening short options if earnings within 7 days
+    - Check IV regime: recommend selling more shorts if IV >70, reducing shorts if IV <30
+    - Check profit threshold: recommend closing at 60% profit for all short options
+    - Prioritize recommendations: close > roll > maintain
+    - _Requirements: 24.14, 24.17, 24.18, 24.19, 24.20_
+
+- [x] 25. Integrate recommendations into dashboard
+  - [x] 25.1 Update FinanceHandler to generate recommendations
+    - Call `position_recommendation_service.generate_position_recommendation()` for each position
+    - Include recommendations in dashboard response alongside positions
+    - Handle cases where recommendation cannot be generated (missing data)
+    - _Requirements: 24_
+  
+  - [x] 25.2 Update API response models
+    - Add recommendation fields to `StrategyData` model
+    - Ensure recommendations are serialized correctly in dashboard response
+    - _Requirements: 24_
+
+- [x] 26. Implement recommendation UI components
+  - [x] 26.1 Create RecommendationCard component
+    - Display action badge (MAINTAIN=green, CLOSE=yellow, ROLL=blue)
+    - Display reasoning bullets
+    - Show priority indicator (urgent/moderate/low)
+    - Add timestamp of recommendation
+    - _Requirements: 25.1, 25.2_
+  
+  - [x] 26.2 Add roll parameters display
+    - Show current position details (strike, expiration, DTE)
+    - Show suggested rolled position (new strike, new expiration, new DTE)
+    - Display expected credit/debit
+    - Show roll type label (e.g., "Roll Down & Out")
+    - Add comparison view: current vs suggested
+    - _Requirements: 25.3, 25.4, 25.6_
+  
+  - [x] 26.3 Add action buttons to recommendations
+    - Add "Close Position" button for CLOSE recommendations
+    - Add "Roll Position" button for ROLL recommendations
+    - Add "Keep Position" button for MAINTAIN recommendations (informational)
+    - Wire buttons to appropriate actions
+    - _Requirements: 25.3, 25.4_
+  
+  - [x] 26.4 Implement roll position workflow
+    - When "Roll Position" clicked, open position form
+    - Pre-fill form with current position details
+    - Highlight suggested changes (new strike, new expiration)
+    - Show expected credit/debit calculation
+    - Allow user to adjust suggested parameters
+    - Submit as new position (system will handle closing old position)
+    - _Requirements: 25.5, 25.7_
+  
+  - [x] 26.5 Add recommendation tooltips and help text
+    - Add hover tooltips explaining each reasoning bullet
+    - Show detailed thresholds (e.g., "Delta: 0.65 (threshold: 0.70)")
+    - Add help icon with explanation of recommendation system
+    - Display recommendation change notifications
+    - _Requirements: 25.8, 25.9, 25.10_
+
+- [x] 27. Test position recommendation system
+  - [x] 27.1 Write unit tests for recommendation logic
+    - Test LEAPS recommendation with various delta/DTE combinations
+    - Test short call recommendation with different profit levels and price movements
+    - Test short put recommendation with different scenarios
+    - Test roll parameter calculations
+    - Test priority assignment
+    - _Requirements: 24_
+  
+  - [x] 27.2 Write integration tests
+    - Test complete dashboard flow with positions and recommendations
+    - Test recommendation updates when market data changes
+    - Test roll workflow end-to-end
+    - _Requirements: 24, 25_
+  
+  - [x] 27.3 Write frontend component tests
+    - Test RecommendationCard rendering with different actions
+    - Test roll parameters display
+    - Test action button interactions
+    - Test tooltip functionality
+    - _Requirements: 25_
+
 ## Notes
 
 - Follow mojo-api Handler + DAO injection pattern throughout
@@ -324,3 +443,5 @@ This plan implements a real-time stock tracking and options trading assistant sy
 - Positions and watchlist persist indefinitely (no TTL)
 - All frontend components should handle loading and error states gracefully
 - Mobile-first design with responsive breakpoints
+- Position recommendations should be calculated in real-time based on current market data
+- Recommendations should be clear, actionable, and include specific parameters for rolls

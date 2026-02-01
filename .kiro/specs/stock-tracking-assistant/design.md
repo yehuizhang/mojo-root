@@ -460,6 +460,13 @@ def get_finance_handler(
 - `generate_leaps_signal(stock_data: StockData, options: OptionsChain) -> LEAPSSignal`
 - `generate_pmcc_signal(stock_data: StockData, options: OptionsChain) -> PMCCSignal`
 
+**PositionRecommendationService**: Generates position management recommendations
+- `generate_position_recommendation(position: Position, stock_data: StockData, options: OptionsChain) -> PositionRecommendation`
+- `evaluate_leaps_recommendation(position: Position, stock_data: StockData, current_delta: float) -> PositionRecommendation`
+- `evaluate_short_call_recommendation(position: Position, stock_data: StockData, options: OptionsChain) -> PositionRecommendation`
+- `evaluate_short_put_recommendation(position: Position, stock_data: StockData, options: OptionsChain) -> PositionRecommendation`
+- `calculate_roll_parameters(position: Position, stock_data: StockData, options: OptionsChain, roll_type: str) -> RollParameters`
+
 **Location**: `mojo-api/api/lib/stock_tracking/massive_client.py`
 
 ```python
@@ -542,6 +549,9 @@ export default function FinanceDashboard() {
 **PositionForm**: Add/edit position modal/inline form
 **SignalCard**: Display signal score and recommendations
 **OptionsTable**: Display recommended strikes with details
+**RecommendationCard**: Display position management recommendations with action badges
+**RollParametersDisplay**: Show current vs suggested position for rolls
+**RecommendationTooltip**: Detailed explanation of recommendation reasoning
 
 
 ## Data Models
@@ -678,6 +688,26 @@ class PositionMetrics(BaseModel):
     days_held: int
     days_to_expiration: Optional[int]  # For options
 
+# Position Recommendation Models
+class RecommendationAction(str, Enum):
+    MAINTAIN = "maintain"
+    CLOSE = "close"
+    ROLL = "roll"
+
+class RollParameters(BaseModel):
+    new_strike: float
+    new_expiration: date
+    new_dte: int
+    expected_credit: Optional[float]  # Positive for credit, negative for debit
+    roll_type: str  # "down & out", "out", "up & out", etc.
+
+class PositionRecommendation(BaseModel):
+    action: RecommendationAction
+    reasoning: List[str]
+    priority: int  # 1=urgent, 2=moderate, 3=low
+    roll_parameters: Optional[RollParameters]
+    timestamp: datetime
+
 # Dashboard Models
 class StrategyData(BaseModel):
     leaps_signal: LEAPSSignal
@@ -685,9 +715,14 @@ class StrategyData(BaseModel):
     csp_signal: CSPSignal
     covered_call_signal: CoveredCallSignal
     leaps_position: Optional[Position]
+    leaps_recommendation: Optional[PositionRecommendation]
     short_call_position: Optional[Position]
+    short_call_recommendation: Optional[PositionRecommendation]
     stock_position: Optional[Position]
+    short_put_position: Optional[Position]
+    short_put_recommendation: Optional[PositionRecommendation]
     covered_call_position: Optional[Position]
+    covered_call_recommendation: Optional[PositionRecommendation]
 
 class StockDashboardData(BaseModel):
     ticker: str
@@ -877,6 +912,331 @@ flowchart TD
     CheckLEAPS --> End[Return All Signals]
 ```
 
+### 5. Position Recommendation Flow
+
+```mermaid
+flowchart TD
+    Start[User Has Position] --> CheckType{Position Type?}
+    
+    CheckType -->|LEAPS Long Call| LEAPSEval[Evaluate LEAPS]
+    LEAPSEval --> CheckDelta{Delta ≥ 0.70?}
+    CheckDelta -->|No| LEAPSClose[Recommend: CLOSE<br/>Reason: Delta too low]
+    CheckDelta -->|Yes| CheckDTE{DTE ≥ 180?}
+    CheckDTE -->|No & <120| LEAPSClose2[Recommend: CLOSE<br/>Reason: Too close to expiration]
+    CheckDTE -->|No & 120-180| LEAPSRoll[Recommend: ROLL<br/>Same strike, later exp<br/>Reason: Extend time]
+    CheckDTE -->|Yes| CheckIV{IV Extremely<br/>Elevated?}
+    CheckIV -->|Yes| LEAPSClose3[Recommend: CLOSE<br/>Reason: IV at top]
+    CheckIV -->|No| LEAPSMaintain[Recommend: MAINTAIN<br/>All conditions good]
+    
+    CheckType -->|Short Call| ShortCallEval[Evaluate Short Call]
+    ShortCallEval --> CheckProfit{Profit ≥ 60%?}
+    CheckProfit -->|Yes| SCClose[Recommend: CLOSE<br/>Reason: Lock in gains]
+    CheckProfit -->|No| CheckSCDTE{DTE < 21?}
+    CheckSCDTE -->|Yes| SCClose2[Recommend: CLOSE<br/>Reason: Too close to exp]
+    CheckSCDTE -->|No| CheckPrice{Price vs Strike?}
+    CheckPrice -->|Below & Stable| SCRollDown[Recommend: ROLL<br/>Down & Out<br/>Lower strike, more premium]
+    CheckPrice -->|Approaching Fast| SCRollOut[Recommend: ROLL<br/>Out in Time<br/>Same strike, extend DTE]
+    CheckPrice -->|Strong Breakout| SCRollUp[Recommend: ROLL<br/>Up & Out<br/>Higher strike, extend DTE]
+    CheckPrice -->|Range-bound| SCMaintain[Recommend: MAINTAIN<br/>Let theta work]
+    
+    CheckType -->|Short Put| ShortPutEval[Evaluate Short Put]
+    ShortPutEval --> CheckSPProfit{Profit ≥ 60%?}
+    CheckSPProfit -->|Yes| SPClose[Recommend: CLOSE<br/>Reason: Lock in gains]
+    CheckSPProfit -->|No| CheckSPPrice{Price vs Strike?}
+    CheckSPPrice -->|Well Above| SPRollDown[Recommend: ROLL<br/>Down or Close<br/>Lock gains]
+    CheckSPPrice -->|Near Strike| SPRollOut[Recommend: ROLL<br/>Out in Time<br/>Same strike, more premium]
+    CheckSPPrice -->|Dropping Hard| SPRollDownOut[Recommend: ROLL<br/>Down & Out<br/>Lower strike, extend DTE]
+    CheckSPPrice -->|Stable| SPMaintain[Recommend: MAINTAIN<br/>Happy to own at strike]
+```
+
+
+## Position Recommendation Logic
+
+### Overview
+
+The position recommendation system evaluates each user position and provides actionable guidance on whether to **MAINTAIN**, **CLOSE**, or **ROLL** the position. Recommendations are based on the trading playbook principles: LEAPS are the thesis, short options are rent.
+
+### Recommendation Priority
+
+1. **CLOSE** (Priority 1 - Urgent): Lock in profits, avoid losses, or exit before risk events
+2. **ROLL** (Priority 2 - Moderate): Adjust position to maintain strategy effectiveness
+3. **MAINTAIN** (Priority 3 - Low): Position is working as intended, no action needed
+
+### LEAPS (Long Call) Recommendations
+
+**Position Type**: Long call options with 18-30 months expiration
+
+#### MAINTAIN Conditions
+- Delta ≥ 0.70 (still behaves like stock)
+- DTE ≥ 180 days (6+ months remaining)
+- IV not extremely elevated (IV percentile < 80)
+- Underlying thesis intact (no major negative news)
+
+**Reasoning Bullets**:
+- "Delta at {delta:.2f} - strong stock-like behavior"
+- "{dte} days remaining - plenty of time value"
+- "IV at {iv_percentile}th percentile - not overpriced"
+- "Thesis intact - continue holding"
+
+#### CLOSE Conditions
+- DTE ≤ 90 days (3-4 months) - gamma and theta spike
+- Delta < 0.60 after price drop - loses stock-like behavior
+- Major thesis break (earnings miss, regulation, structural change)
+- IV collapse after hype event (>30 percentile drop)
+
+**Reasoning Bullets**:
+- "Only {dte} days left - theta accelerating"
+- "Delta dropped to {delta:.2f} - no longer stock-like"
+- "Thesis broken - exit position"
+- "IV collapsed from {prev_iv} to {current_iv} - take profits"
+
+#### ROLL Conditions
+- DTE between 120-180 days (4-6 months) - sweet spot for rolling
+- Delta drifting below 0.65 - re-establish stock exposure
+- Want to extend time before theta accelerates
+
+**Roll Parameters**:
+- **Roll Type**: "Extend Time"
+- **New Strike**: Same strike (or slightly higher if price moved up)
+- **New Expiration**: 12-18 months out
+- **Expected Cost**: Debit (paying to extend time)
+
+**Reasoning Bullets**:
+- "{dte} days remaining - optimal time to roll"
+- "Delta at {delta:.2f} - maintain stock exposure"
+- "Roll to {new_expiration} to extend time value"
+- "Expected debit: ${debit:.2f}"
+
+### Short Call Recommendations
+
+**Position Type**: Short call options (PMCC or covered calls)
+
+#### MAINTAIN Conditions
+- 30-45 DTE remaining
+- Delta 0.20-0.30 (out of the money)
+- IV rank/percentile above baseline (>40)
+- Underlying range-bound or grinding up slowly
+- Profit < 60% of max
+
+**Reasoning Bullets**:
+- "{dte} DTE - optimal theta decay range"
+- "Delta {delta:.2f} - good probability of expiring worthless"
+- "IV at {iv_percentile}th percentile - premium still attractive"
+- "Price range-bound - let theta work"
+
+#### CLOSE Conditions
+- Profit ≥ 60% of max profit - lock in gains early
+- IV collapse (>20 percentile drop)
+- DTE < 21 days - gamma risk increases
+- Strong upward trend - avoid assignment risk
+
+**Reasoning Bullets**:
+- "Profit at {profit_pct:.1f}% - lock in gains"
+- "IV dropped {iv_drop} points - close early"
+- "Only {dte} DTE - gamma risk increasing"
+- "Strong upward move - avoid assignment"
+
+#### ROLL Scenarios
+
+**Scenario A: Price Stays Below Strike (Roll Down & Out)**
+- Current price well below strike (>5%)
+- Position profitable but can capture more premium
+- **Roll Type**: "Down & Out"
+- **New Strike**: Lower strike (closer to current price)
+- **New Expiration**: Same cycle or next (30-60 days)
+- **Expected Credit**: Net credit from roll
+
+**Reasoning Bullets**:
+- "Price at ${price:.2f}, strike at ${strike:.2f} - room to roll down"
+- "Roll to ${new_strike:.2f} strike for ${credit:.2f} additional credit"
+- "Maintain delta ~0.25 with new strike"
+
+**Scenario B: Price Approaching Strike (Roll Out)**
+- Price within 3% of strike
+- Want to avoid assignment
+- **Roll Type**: "Out in Time"
+- **New Strike**: Same strike
+- **New Expiration**: 1-2 cycles out (30-60 days)
+- **Expected Credit**: Small credit or even
+
+**Reasoning Bullets**:
+- "Price approaching ${strike:.2f} strike"
+- "Roll to {new_expiration} to extend time"
+- "Collect ${credit:.2f} additional premium"
+
+**Scenario C: Strong Bullish Breakout (Roll Up & Out)**
+- Price broke above strike or strong upward momentum
+- Want to avoid assignment and capture upside
+- **Roll Type**: "Up & Out"
+- **New Strike**: Higher strike (maintain delta ~0.25)
+- **New Expiration**: 1-2 cycles out (30-60 days)
+- **Expected Credit**: Small credit or small debit
+
+**Reasoning Bullets**:
+- "Strong breakout above ${strike:.2f}"
+- "Roll to ${new_strike:.2f} strike to avoid assignment"
+- "Extend to {new_expiration} for ${credit:.2f}"
+
+#### PMCC Safety Check
+- If short call strike ≤ LEAPS strike: **URGENT - Invalid Structure**
+- **Reasoning**: "Short call at ${sc_strike:.2f} is below LEAPS at ${leaps_strike:.2f} - adjust immediately"
+
+### Short Put Recommendations
+
+**Position Type**: Short put options (cash-secured puts for Wheel strategy)
+
+#### MAINTAIN Conditions
+- 30-45 DTE remaining
+- Delta 0.20-0.30 (out of the money)
+- Happy to own shares at strike price
+- IV elevated (percentile > 50)
+- Profit < 60% of max
+
+**Reasoning Bullets**:
+- "{dte} DTE - optimal theta decay"
+- "Delta {delta:.2f} - good probability of expiring worthless"
+- "Happy to own at ${strike:.2f}"
+- "IV at {iv_percentile}th percentile - premium attractive"
+
+#### CLOSE Conditions
+- Profit ≥ 60% of max profit - lock in gains
+- IV crush (>20 percentile drop)
+- Earnings within 7 days (unless intentionally playing earnings)
+- No longer want to own shares at strike
+
+**Reasoning Bullets**:
+- "Profit at {profit_pct:.1f}% - lock in gains"
+- "IV crushed - close early"
+- "Earnings in {days_to_earnings} days - reduce risk"
+- "No longer want shares at ${strike:.2f}"
+
+#### ROLL Scenarios
+
+**Scenario A: Stock Stays Above Strike (Roll Down or Close)**
+- Price well above strike (>5%)
+- Position very profitable
+- **Action**: Close to lock gains OR roll down for more premium
+- **Roll Type**: "Down" (if rolling)
+- **New Strike**: Lower strike
+- **New Expiration**: Same or next cycle
+
+**Reasoning Bullets**:
+- "Price at ${price:.2f}, well above ${strike:.2f} strike"
+- "Consider closing to lock ${profit:.2f} profit"
+- "Or roll to ${new_strike:.2f} for ${credit:.2f} more premium"
+
+**Scenario B: Price Near Strike (Roll Out)**
+- Price within 3% of strike
+- Neutral outlook, want more premium
+- **Roll Type**: "Out in Time"
+- **New Strike**: Same strike
+- **New Expiration**: 30-60 days out
+- **Expected Credit**: Net credit
+
+**Reasoning Bullets**:
+- "Price near ${strike:.2f} strike"
+- "Roll to {new_expiration} for ${credit:.2f} more premium"
+- "Still happy to own at this price"
+
+**Scenario C: Price Dropping Hard (Roll Down & Out)**
+- Price dropped significantly (>10% from entry)
+- Want to avoid assignment at current strike
+- **Roll Type**: "Down & Out"
+- **New Strike**: Lower strike (closer to current price)
+- **New Expiration**: 30-60 days out
+- **Expected Credit**: Maintain net credit
+
+**Reasoning Bullets**:
+- "Price dropped to ${price:.2f} from ${entry_price:.2f}"
+- "Roll to ${new_strike:.2f} strike to reduce assignment risk"
+- "Extend to {new_expiration} for ${credit:.2f} net credit"
+
+### System-Level Rules
+
+#### Earnings Proximity
+- **If earnings within 7 days AND user has short options**:
+  - Recommendation: CLOSE or widen strikes
+  - Priority: Urgent
+  - Reasoning: "Earnings in {days} days - high volatility risk"
+
+#### IV Regime
+- **High IV (percentile > 70)**:
+  - Recommendation: Sell more short options
+  - Reasoning: "IV at {iv_percentile}th percentile - premium rich"
+
+- **Low IV (percentile < 30)**:
+  - Recommendation: Reduce short options, let LEAPS work
+  - Reasoning: "IV at {iv_percentile}th percentile - premium thin"
+
+#### Profit Taking
+- **Any short option with ≥60% profit**:
+  - Recommendation: CLOSE
+  - Priority: Moderate
+  - Reasoning: "Captured {profit_pct:.1f}% of max profit - lock it in"
+
+### Roll Parameter Calculation
+
+**For Short Options (Calls/Puts)**:
+
+1. **Determine Roll Type** based on price action and user intent
+2. **Find New Strike**:
+   - Down: Find strike with delta 0.25-0.30 below current price
+   - Same: Keep current strike
+   - Up: Find strike with delta 0.25-0.30 above current price
+3. **Find New Expiration**:
+   - Target 30-60 DTE (1-2 cycles out)
+   - Prefer monthly expirations for liquidity
+4. **Calculate Expected Credit/Debit**:
+   - Credit = (New option premium) - (Cost to close current option)
+   - Aim for net credit on rolls when possible
+5. **Validate Roll**:
+   - Ensure new strike maintains strategy integrity
+   - For PMCC: new short call strike > LEAPS strike
+   - For Wheel: new strike aligns with cost basis goals
+
+**For LEAPS**:
+
+1. **Same Strike, Later Expiration** (most common)
+   - Find same strike 12-18 months out
+   - Calculate debit to roll
+2. **Higher Strike, Later Expiration** (if price moved up)
+   - Find strike with delta 0.75-0.85
+   - 12-18 months out
+   - Calculate debit to roll
+
+### Recommendation Display Priority
+
+When multiple factors apply, prioritize in this order:
+
+1. **Urgent Close** (earnings, invalid structure, major thesis break)
+2. **Profit Taking** (≥60% profit)
+3. **Risk Management** (DTE <21, IV collapse, strong adverse move)
+4. **Roll Opportunity** (optimal timing, better positioning)
+5. **Maintain** (all systems normal)
+
+### Example Recommendation Output
+
+```json
+{
+  "action": "roll",
+  "reasoning": [
+    "Price at $175.32, approaching $180 strike",
+    "30 DTE remaining - good time to extend",
+    "IV at 62nd percentile - premium still attractive",
+    "Roll out to collect $2.15 additional credit"
+  ],
+  "priority": 2,
+  "roll_parameters": {
+    "new_strike": 180.0,
+    "new_expiration": "2025-03-21",
+    "new_dte": 60,
+    "expected_credit": 2.15,
+    "roll_type": "Out in Time"
+  },
+  "timestamp": "2025-01-22T10:30:00Z"
+}
+```
+
 
 ## UI Design Specifications
 
@@ -901,11 +1261,37 @@ flowchart TD
 │  │ │ Strike: $140 Call  │  Exp: Jan 2026  │  DTE: 425   │ │  │
 │  │ │ Cost: $4,250  │  Current: $4,890  │  P/L: +15.1%  │ │  │
 │  │ │ Delta: 0.78  │  Extrinsic: $320                    │ │  │
+│  │ │                                                      │ │  │
+│  │ │ ┌────────────────────────────────────────────────┐  │ │  │
+│  │ │ │ 🟢 MAINTAIN                                    │  │ │  │
+│  │ │ │ • Delta at 0.78 - strong stock-like behavior   │  │ │  │
+│  │ │ │ • 425 days remaining - plenty of time value    │  │ │  │
+│  │ │ │ • IV at 62nd percentile - not overpriced       │  │ │  │
+│  │ │ │ • Thesis intact - continue holding             │  │ │  │
+│  │ │ │                                    [Keep] ⓘ    │  │ │  │
+│  │ │ └────────────────────────────────────────────────┘  │ │  │
 │  │ └─────────────────────────────────────────────────────┘ │  │
 │  │                                                           │  │
 │  │ 💰 PMCC Strategy                                         │  │
 │  │ ┌─────────────────────────────────────────────────────┐ │  │
 │  │ │ LEAPS Established - Ready for Short Calls           │ │  │
+│  │ │ Short Call Position: 1 contract                     │ │  │
+│  │ │ Strike: $185 Call  │  Exp: Feb 21  │  DTE: 30      │ │  │
+│  │ │ Premium: $285  │  Current: $115  │  P/L: +59.6%   │ │  │
+│  │ │                                                      │ │  │
+│  │ │ ┌────────────────────────────────────────────────┐  │ │  │
+│  │ │ │ 🔵 ROLL - Out in Time                          │  │ │  │
+│  │ │ │ • Price at $175.32, approaching $185 strike    │  │ │  │
+│  │ │ │ • 30 DTE - good time to extend                 │  │ │  │
+│  │ │ │ • IV at 62nd percentile - premium attractive   │  │ │  │
+│  │ │ │                                                 │  │ │  │
+│  │ │ │ Current: $185 Call, Feb 21 (30 DTE)            │  │ │  │
+│  │ │ │ Suggested: $185 Call, Mar 21 (60 DTE)          │  │ │  │
+│  │ │ │ Expected Credit: $2.15                          │  │ │  │
+│  │ │ │                                                 │  │ │  │
+│  │ │ │                    [Roll Position] [Keep] ⓘ    │  │ │  │
+│  │ │ └────────────────────────────────────────────────┘  │ │  │
+│  │ └─────────────────────────────────────────────────────┘ │  │
 │  │ │ Signal: 🟢 GREEN                                    │ │  │
 │  │ │ • Price above 20 DMA                                │ │  │
 │  │ │ • RSI at 68 (overbought)                           │ │  │
@@ -980,10 +1366,30 @@ flowchart TD
 │ │ │ Cost: $4,250     │ │ │
 │ │ │ Now: $4,890      │ │ │
 │ │ │ P/L: +15.1% 🟢  │ │ │
+│ │ │                  │ │ │
+│ │ │ 🟢 MAINTAIN      │ │ │
+│ │ │ • Delta: 0.78    │ │ │
+│ │ │ • 425d left      │ │ │
+│ │ │ • Thesis intact  │ │ │
+│ │ │ [Keep] ⓘ        │ │ │
 │ │ └──────────────────┘ │ │
 │ │                      │ │
 │ │ 💰 PMCC             │ │
 │ │ ┌──────────────────┐ │ │
+│ │ │ Short Call Pos   │ │ │
+│ │ │ $185 Feb 21      │ │ │
+│ │ │ P/L: +59.6% 🟢  │ │ │
+│ │ │                  │ │ │
+│ │ │ 🔵 ROLL OUT      │ │ │
+│ │ │ • Price → $185   │ │ │
+│ │ │ • 30 DTE left    │ │ │
+│ │ │                  │ │ │
+│ │ │ Roll to:         │ │ │
+│ │ │ $185 Mar 21      │ │ │
+│ │ │ Credit: $2.15    │ │ │
+│ │ │                  │ │ │
+│ │ │ [Roll] [Keep] ⓘ │ │ │
+│ │ └──────────────────┘ │ │
 │ │ │ Signal: 🟢 GREEN │ │ │
 │ │ │ • Price > 20 DMA │ │ │
 │ │ │ • RSI: 68        │ │ │
@@ -1646,7 +2052,8 @@ mojo-api/
 │           ├── services/
 │           │   ├── market_data_service.py
 │           │   ├── technical_analysis_service.py
-│           │   └── signal_generator_service.py
+│           │   ├── signal_generator_service.py
+│           │   └── position_recommendation_service.py
 │           ├── models/
 │           │   ├── stock_data.py
 │           │   ├── signals.py
@@ -1667,6 +2074,8 @@ mojo-next/
 │               ├── SignalCard.tsx
 │               ├── OptionsTable.tsx
 │               ├── PositionForm.tsx
+│               ├── RecommendationCard.tsx
+│               ├── RollParametersDisplay.tsx
 │               └── AutoRefresh.tsx
 └── lib/
     └── api/

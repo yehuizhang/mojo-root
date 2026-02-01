@@ -409,3 +409,47 @@ The Stock Tracking Assistant is a real-time system that helps users track stock 
 5. WHEN environment variable has invalid format, THE System SHALL log error and fail to start
 6. WHEN STAGE environment variable is set to DEV, THE System SHALL use development-specific settings
 7. WHEN STAGE environment variable is set to PROD, THE System SHALL use production-specific settings
+
+### Requirement 24: Position Management Recommendations
+
+**User Story:** As a user, I want specific recommendations for each of my positions on whether to maintain, close, or roll forward, so that I can make informed decisions about position management.
+
+#### Acceptance Criteria
+
+1. WHEN User has a LEAPS position, THE System SHALL evaluate maintain conditions: delta ≥0.70, ≥6-9 months to expiration, IV not extremely elevated, thesis intact
+2. WHEN User has a LEAPS position, THE System SHALL evaluate close conditions: ≤3-4 months to expiration, delta <0.60, major thesis break, IV collapse after hype event
+3. WHEN User has a LEAPS position with 6 months remaining or delta <0.65, THE System SHALL recommend rolling to later expiration
+4. WHEN User has a short call position, THE System SHALL evaluate maintain conditions: 30-45 DTE, delta 0.20-0.30, IV rank above baseline, underlying range-bound or grinding up slowly
+5. WHEN User has a short call position, THE System SHALL evaluate close conditions: 50-70% of max profit reached, IV collapse, within 21 DTE, strong upward trend
+6. WHEN User has a short call position with price staying below strike, THE System SHALL recommend rolling down & out for more premium
+7. WHEN User has a short call position with price approaching strike fast, THE System SHALL recommend rolling out in time at same strike
+8. WHEN User has a short call position with strong bullish breakout, THE System SHALL recommend rolling up & out to higher strike
+9. WHEN User has a short put position, THE System SHALL evaluate maintain conditions: 30-45 DTE, delta 0.20-0.30, happy to own shares at strike, IV elevated
+10. WHEN User has a short put position, THE System SHALL evaluate close conditions: 50-70% max profit reached, IV crush, before earnings
+11. WHEN User has a short put position with stock staying above strike, THE System SHALL recommend rolling down or closing to lock gains
+12. WHEN User has a short put position with price near strike and neutral outlook, THE System SHALL recommend rolling out at same strike for more premium
+13. WHEN User has a short put position with price dropping hard, THE System SHALL recommend rolling down & out while maintaining net credit
+14. WHEN generating position recommendations, THE System SHALL include action (maintain/close/roll), reasoning bullets, and specific roll parameters if applicable
+15. WHEN generating roll recommendations, THE System SHALL specify new strike, new expiration, and expected credit/debit
+16. WHEN User has PMCC with short call strike at or below LEAPS strike, THE System SHALL flag as invalid structure and recommend adjustment
+17. WHEN earnings are within 7 days and User has short options, THE System SHALL recommend closing or widening positions
+18. WHEN IV percentile is high (>70), THE System SHALL recommend selling more short options
+19. WHEN IV percentile is low (<30), THE System SHALL recommend reducing short options and letting LEAPS work
+20. WHEN position has reached 60% profit, THE System SHALL recommend closing early to lock gains
+
+### Requirement 25: Position Recommendation UI
+
+**User Story:** As a user, I want to see position management recommendations displayed prominently for each position, so that I can quickly understand what action to take.
+
+#### Acceptance Criteria
+
+1. WHEN User has a position, THE Frontend SHALL display a recommendation card with action badge (MAINTAIN/CLOSE/ROLL)
+2. WHEN recommendation is MAINTAIN, THE Frontend SHALL display green badge and reasoning bullets
+3. WHEN recommendation is CLOSE, THE Frontend SHALL display yellow badge, reasoning bullets, and "Close Position" button
+4. WHEN recommendation is ROLL, THE Frontend SHALL display blue badge, reasoning bullets, and roll parameters (new strike, new expiration, credit/debit)
+5. WHEN recommendation is ROLL, THE Frontend SHALL display "Roll Position" button that pre-fills position form with suggested parameters
+6. WHEN displaying roll recommendation, THE Frontend SHALL show comparison: current position vs suggested rolled position
+7. WHEN User clicks "Roll Position", THE Frontend SHALL open position form with current position pre-filled and suggested changes highlighted
+8. WHEN position has multiple recommendation factors, THE Frontend SHALL prioritize most urgent recommendation (close > roll > maintain)
+9. WHEN position recommendation changes, THE Frontend SHALL highlight the change with animation or badge
+10. WHEN User hovers over recommendation reasoning, THE Frontend SHALL show tooltip with detailed explanation and thresholds
