@@ -3,6 +3,14 @@ inclusion: always
 ---
 # Essential Commands
 
+## ⚠️ BEFORE YOU RUN ANY COMMAND IN MOJO-API ⚠️
+
+**Are you running a Python command?** → Activate venv first: `source .venv/bin/activate && <command>`
+
+**See "command not found: python"?** → You forgot to activate venv. Don't troubleshoot, just activate and retry.
+
+---
+
 ## Local Development Environment
 
 **IMPORTANT**: User runs mojo-api locally (NOT in Docker) using:
@@ -18,17 +26,59 @@ bb dev         # Runs FastAPI locally with uvicorn auto-reload
 
 ## Python Virtual Environment
 
-**CRITICAL**: When opening a new terminal, ALWAYS activate the virtual environment first:
+🚨 **CRITICAL - READ THIS FIRST** 🚨
+
+**BEFORE running ANY Python command in mojo-api, you MUST activate the virtual environment:**
+
 ```bash
 source .venv/bin/activate
 # Wait a few seconds for activation to complete
 # Then run your commands
 ```
 
-This applies to:
-- Running tests: `python -m pytest api/test/ --ignore=chronos -q`
-- Running the dev server: `bb dev`
-- Any Python commands in the mojo-api directory
+### When Virtual Environment is Required
+
+**ALWAYS activate venv for these commands:**
+- `python -m pytest` (running tests)
+- `python -m <anything>` (any Python module)
+- `bb dev` (local development server)
+- `python <script>.py` (running any Python script)
+- Any command that imports Python packages
+
+**Commands that DON'T need venv:**
+- Pure Docker commands: `docker compose`, `docker ps`, `docker logs`
+- Pure bash commands: `ls`, `cd`, `grep`, `cat`
+- Build scripts that run in Docker: `bb up`, `bb down`
+
+### Error Patterns That Mean "You Forgot to Activate Venv"
+
+If you see ANY of these errors, it means you forgot to activate the venv:
+- ❌ `command not found: python`
+- ❌ `command not found: pytest`
+- ❌ `ModuleNotFoundError: No module named 'fastapi'`
+- ❌ `ModuleNotFoundError: No module named 'pytest'`
+- ❌ Any import error when running Python in mojo-api
+
+**Correct response:** Don't troubleshoot the error. Just activate venv and try again.
+
+### Standard Pattern for Running Python Commands
+
+**ALWAYS use this pattern:**
+```bash
+source .venv/bin/activate && <your-python-command>
+```
+
+**Examples:**
+```bash
+# Running tests
+source .venv/bin/activate && python -m pytest api/test/ --ignore=chronos -q
+
+# Running dev server
+source .venv/bin/activate && bb dev
+
+# Running a script
+source .venv/bin/activate && python playground/option.py
+```
 
 **Why this matters**: Without activating the venv, Python won't find the installed dependencies and commands will fail.
 
