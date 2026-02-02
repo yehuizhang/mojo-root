@@ -1,3 +1,6 @@
+---
+inclusion: always
+---
 # Essential Commands
 
 ## Local Development Environment
@@ -12,6 +15,22 @@ bb dev         # Runs FastAPI locally with uvicorn auto-reload
 - Connects to Redis at 192.168.0.105:6380
 - Logs appear directly in terminal (not Docker logs)
 - Code changes auto-reload via uvicorn watch
+
+## Python Virtual Environment
+
+**CRITICAL**: When opening a new terminal, ALWAYS activate the virtual environment first:
+```bash
+source .venv/bin/activate
+# Wait a few seconds for activation to complete
+# Then run your commands
+```
+
+This applies to:
+- Running tests: `python -m pytest api/test/ --ignore=chronos -q`
+- Running the dev server: `bb dev`
+- Any Python commands in the mojo-api directory
+
+**Why this matters**: Without activating the venv, Python won't find the installed dependencies and commands will fail.
 
 ## Build Commands
 

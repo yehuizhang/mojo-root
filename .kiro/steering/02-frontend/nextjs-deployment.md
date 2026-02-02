@@ -1,3 +1,7 @@
+---
+inclusion: fileMatch
+fileMatchPattern: '**/*.{ts,tsx}'
+---
 # Next.js Deployment Patterns
 
 ## Environment Variables

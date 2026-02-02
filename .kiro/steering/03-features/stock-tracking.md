@@ -1,3 +1,7 @@
+---
+inclusion: fileMatch
+fileMatchPattern: '**/finance/**/*.{py,ts,tsx}'
+---
 # Stock Tracking Assistant
 
 ## Overview
